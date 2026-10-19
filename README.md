@@ -1,6 +1,6 @@
 # Методи Data Science — лабораторна №2
 
-Варіант 7. Попередня обробка, візуалізація та дослідження даних.
+Попередня обробка, візуалізація та дослідження даних.
 
 [Умови завдання](https://github.com/UNI-DS/DS-Lab-2) ·
 [Приклади з лекції](https://github.com/mehalyna/UNI-MethDS-Lessons/blob/main/L2_Data_Preprocessing.ipynb)
