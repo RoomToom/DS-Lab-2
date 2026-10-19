@@ -73,7 +73,14 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with features scaled to specified range.
         """
-        pass
+        data = self.data.copy()
+        columns = [col for col in data.select_dtypes(include=np.number) if col != self.target_col]
+        scaler = MinMaxScaler(feature_range=feature_range, clip=True)
+        if columns and len(data):
+            data[columns] = scaler.fit_transform(data[columns])
+        self.scalers['minmax'] = scaler
+        self.scaled_datasets['minmax'] = data
+        return data
     
     def apply_standard_scaling(self) -> pd.DataFrame:
         """
@@ -82,7 +89,14 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with standardized features.
         """
-        pass
+        data = self.data.copy()
+        columns = [col for col in data.select_dtypes(include=np.number) if col != self.target_col]
+        scaler = StandardScaler()
+        if columns and len(data):
+            data[columns] = scaler.fit_transform(data[columns])
+        self.scalers['standard'] = scaler
+        self.scaled_datasets['standard'] = data
+        return data
     
     def apply_robust_scaling(self) -> pd.DataFrame:
         """
@@ -91,7 +105,14 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with robust scaled features.
         """
-        pass
+        data = self.data.copy()
+        columns = [col for col in data.select_dtypes(include=np.number) if col != self.target_col]
+        scaler = RobustScaler()
+        if columns and len(data):
+            data[columns] = scaler.fit_transform(data[columns])
+        self.scalers['robust'] = scaler
+        self.scaled_datasets['robust'] = data
+        return data
     
     def apply_maxabs_scaling(self) -> pd.DataFrame:
         """
@@ -100,7 +121,14 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with maxabs scaled features.
         """
-        pass
+        data = self.data.copy()
+        columns = [col for col in data.select_dtypes(include=np.number) if col != self.target_col]
+        scaler = MaxAbsScaler()
+        if columns and len(data):
+            data[columns] = scaler.fit_transform(data[columns])
+        self.scalers['maxabs'] = scaler
+        self.scaled_datasets['maxabs'] = data
+        return data
     
     def apply_power_transform(self, method: str = 'yeo-johnson') -> pd.DataFrame:
         """
@@ -112,7 +140,14 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with power transformed and standardized features.
         """
-        pass
+        data = self.data.copy()
+        columns = [col for col in data.select_dtypes(include=np.number) if col != self.target_col]
+        scaler = PowerTransformer(method=method)
+        if columns and len(data):
+            data[columns] = scaler.fit_transform(data[columns])
+        self.scalers['power'] = scaler
+        self.scaled_datasets['power'] = data
+        return data
     
     def get_scaling_summary(self) -> pd.DataFrame:
         """
@@ -121,7 +156,8 @@ class ScalingAnalyzer:
         Returns:
             DataFrame with statistics for each scaling method
         """
-        pass
+        return pd.concat({name: data.drop(columns=self.target_col, errors='ignore').describe().loc[['mean','std','min','max']]
+                          for name, data in {'original': self.original_data, **self.scaled_datasets}.items()}, axis=1)
     
     def evaluate_model_performance(self, model_type: str = 'linear_regression',
                                    dataset_name: str = 'original') -> Dict[str, float]:
@@ -135,7 +171,26 @@ class ScalingAnalyzer:
         Returns:
             Dict[str, float]: Dictionary containing cv_score and cv_std.
         """
-        pass
+        from sklearn.base import clone
+        from sklearn.pipeline import make_pipeline
+        from sklearn.impute import SimpleImputer
+        from sklearn.model_selection import KFold, StratifiedKFold
+        if dataset_name != 'original' and dataset_name not in self.scalers:
+            raise ValueError('Dataset not found: ' + dataset_name)
+        models = {'linear_regression': LinearRegression(), 'knn': KNeighborsClassifier(),
+                  'svm': SVC(), 'neural_network': MLPClassifier(random_state=42, max_iter=500)}
+        if model_type not in models or self.target_col not in self.data:
+            raise ValueError('Unknown model or missing target.')
+        X = self.data.drop(columns=self.target_col).select_dtypes(include=np.number)
+        y = self.data[self.target_col]
+        steps = [SimpleImputer()]
+        if dataset_name != 'original':
+            steps.append(clone(self.scalers[dataset_name]))
+        steps.append(models[model_type])
+        regression = model_type == 'linear_regression'
+        cv = KFold(5, shuffle=True, random_state=42) if regression else StratifiedKFold(5, shuffle=True, random_state=42)
+        scores = cross_val_score(make_pipeline(*steps), X, y, cv=cv, scoring='r2' if regression else 'accuracy')
+        return {'cv_score': float(scores.mean()), 'cv_std': float(scores.std())}
     
     def compare_model_performance(self, model_types: List[str] = None) -> pd.DataFrame:
         """
@@ -255,7 +310,8 @@ class ScalingAnalyzer:
                 data_to_plot.append(scaled_df[feature].dropna())
                 labels.append(method_name.upper())
             
-            bp = ax.boxplot(data_to_plot, labels=labels, patch_artist=True)
+            bp = ax.boxplot(data_to_plot, patch_artist=True)
+            ax.set_xticks(range(1, len(labels) + 1), labels)
             
             # Color the boxes
             colors = ['skyblue'] + ['lightcoral'] * len(self.scaled_datasets)
@@ -329,34 +385,16 @@ class ScalingAnalyzer:
             comparison_df: DataFrame with performance comparison
             figsize: Figure size for plots
         """
-        if comparison_df.empty:
-            print("No comparison data available")
-            return
-        
-        # Group by scaling method and average across models
-        scaling_perf = comparison_df.groupby('scaling')['score'].mean()
-        
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
-        
-        # Bar chart
-        scaling_perf.plot(kind='bar', ax=ax1, color='steelblue', alpha=0.7)
-        ax1.set_title('Average Performance by Scaling Method', fontweight='bold')
-        ax1.set_xlabel('Scaling Method')
-        ax1.set_ylabel('Average Score')
-        ax1.tick_params(axis='x', rotation=45)
-        ax1.grid(axis='y', alpha=0.3)
-        
-        # Grouped bar chart by model
-        pivot_df = comparison_df.pivot(index='scaling', columns='model', values='score')
-        pivot_df.plot(kind='bar', ax=ax2, alpha=0.7)
-        ax2.set_title('Performance by Scaling Method and Model', fontweight='bold')
-        ax2.set_xlabel('Scaling Method')
-        ax2.set_ylabel('Score')
-        ax2.tick_params(axis='x', rotation=45)
-        ax2.legend(title='Model', bbox_to_anchor=(1.05, 1), loc='upper left')
-        ax2.grid(axis='y', alpha=0.3)
-        
-        plt.tight_layout()
+        models = comparison_df['model'].unique()
+        fig, axes = plt.subplots(1, len(models), figsize=figsize, squeeze=False)
+        for ax, model in zip(axes.flat, models):
+            scores = comparison_df.loc[comparison_df['model'] == model]
+            ax.bar(scores['scaling'], scores['score'], yerr=scores['std'], capsize=3, color='steelblue')
+            ax.set_title(model.replace('_', ' ').title())
+            ax.set_ylabel('R²' if model == 'linear_regression' else 'Accuracy')
+            ax.tick_params(axis='x', rotation=45)
+            ax.grid(axis='y', alpha=.3)
+        fig.tight_layout()
         return fig
     
     def visualize_feature_space_2d(self, x_feature: str, y_feature: str,
@@ -620,6 +658,8 @@ def main():
     print("  - Use Robust Scaling when data contains outliers")
     print("  - Use Power Transform to make data more Gaussian-like")
     
+    summary.to_csv("task3_scaling_statistics.csv")
+    comparison.to_csv("task3_model_comparison.csv", index=False)
     return analyzer
 
 

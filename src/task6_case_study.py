@@ -60,28 +60,23 @@ class DataPreprocessor:
         Returns:
             Dict: Quality assessment report
         """
+        missing = self.data.isna().sum()
+        counts = self.data[self.target_col].value_counts() if self.target_col in self.data else pd.Series(dtype=int)
         report = {
-            'shape': self.data.shape,
-            'total_samples': len(self.data),
-            'total_features': len(self.data.columns),
-            'memory_usage_mb': self.data.memory_usage(deep=True).sum() / 1024**2,
-            'duplicates': self.data.duplicated().sum(),
-            'missing_values': {},
-            'data_types': {},
-            'numeric_features': [],
-            'categorical_features': [],
-            'datetime_features': [],
-            'target_distribution': {}
+            'shape': self.data.shape, 'total_samples': len(self.data), 'total_features': len(self.data.columns),
+            'memory_usage_mb': float(self.data.memory_usage(deep=True).sum() / 1024**2),
+            'duplicates': int(self.data.duplicated().sum()),
+            'missing_values': {'total': int(missing.sum()), 'by_column': missing[missing > 0].to_dict(),
+                               'percentage_by_column': (self.data.isna().mean().fillna(0) * 100).to_dict()},
+            'data_types': self.data.dtypes.astype(str).to_dict(),
+            'numeric_features': self.data.select_dtypes(include=np.number).columns.tolist(),
+            'categorical_features': self.data.select_dtypes(include=['object', 'string', 'category']).columns.tolist(),
+            'datetime_features': self.data.select_dtypes(include=['datetime']).columns.tolist(),
+            'target_distribution': counts.to_dict(),
+            'class_balance': float(counts.min()/counts.max()) if len(counts) else 0.0,
         }
-        
-        # Missing values analysis
-        pass
-        
-        # Data types
-        pass
-        
-        # Target distribution
-        pass
+        self.quality_report = report
+        return report
     
     def print_quality_report(self):
         """
@@ -133,27 +128,19 @@ class DataPreprocessor:
             pd.DataFrame: Data with missing values handled
         """
         data = self.data.copy()
-        
-        numeric_cols = [col for col in self.quality_report['numeric_features'] 
-                       if col != self.target_col]
-        categorical_cols = self.quality_report['categorical_features']
-        
-        if strategy == 'auto' or strategy == 'simple':
-            # Numeric: median imputation
-            pass
-            
-            # Categorical: mode imputation
-            if categorical_cols:
-                pass
-        
-        elif strategy == 'knn':
-            pass
-        
-        elif strategy == 'iterative':
-            pass
-        
+        columns = [col for col in data.select_dtypes(include=np.number) if col != self.target_col]
+        if strategy in ('auto', 'simple'): imputer = SimpleImputer(strategy='median', keep_empty_features=True)
+        elif strategy == 'knn': imputer = KNNImputer(keep_empty_features=True)
+        elif strategy == 'iterative': imputer = IterativeImputer(random_state=42, keep_empty_features=True)
+        else: raise ValueError('Unknown imputation strategy: ' + strategy)
+        if columns: data[columns] = imputer.fit_transform(data[columns].to_numpy(copy=True))
+        for col in data.columns.difference(columns):
+            if col == self.target_col: continue
+            mode = data[col].mode()
+            if data[col].isna().any():
+                data[col] = data[col].fillna(mode.iloc[0] if len(mode) else 'Missing')
         self.data = data
-        self.preprocessing_steps.append(f"Missing values handled: {strategy}")
+        self.preprocessing_steps.append(f'Missing values handled: {strategy}')
         return data
     
     def detect_and_handle_outliers(self, method: str = 'iqr', 
@@ -169,13 +156,20 @@ class DataPreprocessor:
             pd.DataFrame: Data with outliers handled
         """
         data = self.data.copy()
-                                       
-        pass
-        
+        columns = [col for col in data.select_dtypes(include=np.number) if col != self.target_col]
+        values = data[columns]
+        if method == 'iqr':
+            q1, q3 = values.quantile(.25), values.quantile(.75)
+            lower, upper = q1 - 1.5 * (q3-q1), q3 + 1.5 * (q3-q1)
+        elif method == 'zscore':
+            lower, upper = values.mean()-3*values.std(), values.mean()+3*values.std()
+        else: raise ValueError('Unknown outlier method: ' + method)
+        mask = (values < lower) | (values > upper)
+        if action == 'cap': data[columns] = values.clip(lower, upper, axis=1)
+        elif action == 'remove': data = data.loc[~mask.any(axis=1)].copy()
+        else: raise ValueError('Unknown outlier action: ' + action)
         self.data = data
-        self.preprocessing_steps.append(
-            f"Outliers handled: {method} method, {action} action, {outliers_count} outliers"
-        )
+        self.preprocessing_steps.append(f'Outliers handled: {method}, {action}, {int(mask.sum().sum())} values')
         return data
     
     def encode_categorical_features(self, method: str = 'auto') -> pd.DataFrame:
@@ -188,12 +182,22 @@ class DataPreprocessor:
         Returns:
             pd.DataFrame: Data with encoded categorical features
         """
+        if method not in ('auto','onehot','label'): raise ValueError('Unknown encoding method.')
         data = self.data.copy()
-        
-        pass
-        
+        for col in list(data.columns):
+            if col == self.target_col: continue
+            if pd.api.types.is_datetime64_any_dtype(data[col]):
+                for part in ['year','month','day','dayofweek']:
+                    data[col + '_' + part] = getattr(data[col].dt, part)
+                data = data.drop(columns=col)
+            elif not pd.api.types.is_numeric_dtype(data[col]):
+                values = data[col].astype('string').fillna('Missing')
+                if method == 'onehot' or (method == 'auto' and values.nunique() <= 10):
+                    data = pd.concat([data.drop(columns=col), pd.get_dummies(values, prefix=col, dtype=int)], axis=1)
+                else:
+                    data[col] = LabelEncoder().fit_transform(values)
         self.data = data
-        self.preprocessing_steps.append(f"Categorical encoding: {method}, datetime features extracted")
+        self.preprocessing_steps.append(f'Categorical encoding: {method}, datetime features extracted')
         return data
     
     def engineer_features(self, domain_features: bool = True) -> pd.DataFrame:
@@ -207,27 +211,21 @@ class DataPreprocessor:
             pd.DataFrame: Data with engineered features
         """
         data = self.data.copy()
-        numeric_cols = [col for col in self.quality_report['numeric_features'] 
-                       if col != self.target_col]
-        
+        columns = [col for col in data.select_dtypes(include=np.number) if col != self.target_col]
         new_features = []
-        
-        # Statistical features
-        if len(numeric_cols) >= 2:
-            # Mean of all numeric features
-            pass
-            
-            # Standard deviation
-            pass
-            
-            # Min and max
-            pass
-        
-        # Interaction features (limited to avoid explosion)
-        pass
-        
+        if len(columns) >= 2:
+            for operation in ['mean','std','min','max']:
+                name = operation + '_all_features'
+                data[name] = getattr(data[columns], operation)(axis=1)
+                new_features.append(name)
+            if domain_features:
+                for a, b in zip(columns[:3], columns[1:3]):
+                    product, ratio = a + '_x_' + b, a + '_div_' + b
+                    data[product] = data[a] * data[b]
+                    data[ratio] = (data[a] / data[b].replace(0,np.nan)).fillna(0)
+                    new_features.extend([product, ratio])
         self.data = data
-        self.preprocessing_steps.append(f"Feature engineering: {len(new_features)} new features created")
+        self.preprocessing_steps.append(f'Feature engineering: {len(new_features)} new features created')
         return data
     
     def scale_features(self, method: str = 'standard') -> pd.DataFrame:
@@ -241,11 +239,13 @@ class DataPreprocessor:
             pd.DataFrame: Data with scaled features
         """
         data = self.data.copy()
-        
-        pass
-        
+        columns = [col for col in data.select_dtypes(include=np.number) if col != self.target_col]
+        if method == 'standard': scaler = StandardScaler()
+        elif method == 'robust': scaler = RobustScaler()
+        else: raise ValueError('Unknown scaling method: ' + method)
+        if columns: data[columns] = scaler.fit_transform(data[columns])
         self.data = data
-        self.preprocessing_steps.append(f"Feature scaling: {method}")
+        self.preprocessing_steps.append(f'Feature scaling: {method}')
         return data
     
     def select_features(self, method: str = 'kbest', n_features: int = 20) -> pd.DataFrame:
@@ -299,41 +299,15 @@ class DataPreprocessor:
         Returns:
             pd.DataFrame: Balanced dataset
         """
+        if method not in ('undersample', 'oversample'): raise ValueError('Unknown balancing method.')
         data = self.data.copy()
-        
-        if self.target_col not in data.columns:
-            return data
-        
-        # Separate majority and minority classes
-        class_counts = data[self.target_col].value_counts()
-        majority_class = class_counts.idxmax()
-        minority_class = class_counts.idxmin()
-        
-        df_majority = data[data[self.target_col] == majority_class]
-        df_minority = data[data[self.target_col] == minority_class]
-        
-        if method == 'undersample':
-            # Downsample majority class
-            df_majority_downsampled = resample(
-                df_majority, 
-                replace=False,
-                n_samples=len(df_minority),
-                random_state=42
-            )
-            data = pd.concat([df_majority_downsampled, df_minority])
-        
-        elif method == 'oversample':
-            # Upsample minority class
-            df_minority_upsampled = resample(
-                df_minority,
-                replace=True,
-                n_samples=len(df_majority),
-                random_state=42
-            )
-            data = pd.concat([df_majority, df_minority_upsampled])
-        
+        if self.target_col not in data: return data
+        counts = data[self.target_col].value_counts()
+        size = counts.min() if method == 'undersample' else counts.max()
+        data = pd.concat([group.sample(n=int(size), replace=method == 'oversample', random_state=42)
+                          for _, group in data.groupby(self.target_col)])
         self.data = data
-        self.preprocessing_steps.append(f"Class balancing: {method}")
+        self.preprocessing_steps.append(f'Class balancing: {method}')
         return data
     
     def preprocess_pipeline(self, config: Dict[str, Any]) -> pd.DataFrame:
@@ -346,6 +320,11 @@ class DataPreprocessor:
         Returns:
             pd.DataFrame: Fully preprocessed data
         """
+        if not self.quality_report:
+            self.assess_data_quality()
+        duplicates = int(self.data.duplicated().sum())
+        self.data = self.data.drop_duplicates().copy()
+        self.preprocessing_steps.append(f"Duplicates removed: {duplicates}")
         print("Starting preprocessing pipeline...")
         print("-" * 80)
         
@@ -777,6 +756,7 @@ def main():
     print("  - task6_preprocessing_report.json")
     print()
     
+    preprocessor.data.to_csv("task6_processed_data.csv", index=False)
     return preprocessor
 
 

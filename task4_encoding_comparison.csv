@@ -1,0 +1,4 @@
+,accuracy
+Label Encoding,0.9579999999999999
+One-Hot Encoding,0.959
+Frequency Encoding,0.961

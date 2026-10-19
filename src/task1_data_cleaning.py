@@ -52,7 +52,12 @@ class DataQualityAnalyzer:
             Dict: Dictionary containing total_rows, total_columns, duplicates, 
                 missing_values, missing_percentage, data_types, and memory_usage
         """
-        pass
+        return {'total_rows': len(self.data), 'total_columns': len(self.data.columns),
+                'duplicates': int(self.data.duplicated().sum()),
+                'missing_values': self.data.isna().sum().to_dict(),
+                'missing_percentage': (self.data.isna().mean().fillna(0) * 100).to_dict(),
+                'data_types': self.data.dtypes.astype(str).to_dict(),
+                'memory_usage': float(self.data.memory_usage(deep=True).sum() / 1024**2)}
     
     def identify_missing_pattern(self, column: str) -> str:
         """
@@ -64,7 +69,18 @@ class DataQualityAnalyzer:
         Returns:
             str: String indicating likely missing pattern (MCAR, MAR, or MNAR)
         """
-        pass
+        if column not in self.data:
+            return 'Column not found'
+        missing = self.data[column].isna()
+        if not missing.any():
+            return 'No missing values'
+        # Кореляція дає лише припущення: MNAR не можна довести за спостереженими даними.
+        correlations = self.data.select_dtypes(include=np.number).drop(columns=column, errors='ignore').corrwith(missing.astype(int)).abs()
+        if (correlations > 0.2).any():
+            return 'Likely MAR (Missing at Random)'
+        if missing.all():
+            return 'Possibly MNAR (Missing Not at Random)'
+        return 'Likely MCAR (Missing Completely at Random)'
     
     def create_missing_indicators(self) -> pd.DataFrame:
         """
@@ -73,7 +89,8 @@ class DataQualityAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with binary indicators for missing values
         """
-        pass
+        self.missing_indicators = self.data.loc[:, self.data.isna().any()].isna().astype(int).add_suffix('_missing')
+        return self.missing_indicators
     
     def simple_imputation(self, strategy: str = 'mean') -> pd.DataFrame:
         """
@@ -85,7 +102,19 @@ class DataQualityAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with imputed values
         """
-        pass
+        if strategy not in ('mean', 'median', 'most_frequent'):
+            raise ValueError('Unknown imputation strategy: ' + strategy)
+        data = self.data.copy()
+        for col in data:
+            values = data[col]
+            if pd.api.types.is_numeric_dtype(values) and strategy != 'most_frequent':
+                fill = values.mean() if strategy == 'mean' else values.median()
+                data[col] = values.fillna(0 if pd.isna(fill) else fill)
+            else:
+                mode = values.mode()
+                data[col] = values.fillna(mode.iloc[0] if len(mode) else 'Missing')
+        self.imputed_datasets['simple_' + strategy] = data
+        return data
     
     def knn_imputation(self, n_neighbors: int = 5) -> pd.DataFrame:
         """
@@ -97,7 +126,15 @@ class DataQualityAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with KNN imputed values
         """
-        pass
+        data = self.data.copy()
+        columns = data.select_dtypes(include=np.number).columns
+        if len(columns):
+            data[columns] = KNNImputer(n_neighbors=n_neighbors, keep_empty_features=True).fit_transform(data[columns])
+        for col in data.columns.difference(columns):
+            mode = data[col].mode()
+            data[col] = data[col].fillna(mode.iloc[0] if len(mode) else 'Missing')
+        self.imputed_datasets['knn'] = data
+        return data
     
     def iterative_imputation(self, max_iter: int = 10) -> pd.DataFrame:
         """
@@ -109,7 +146,15 @@ class DataQualityAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with iteratively imputed values
         """
-        pass
+        data = self.data.copy()
+        columns = data.select_dtypes(include=np.number).columns
+        if len(columns):
+            data[columns] = IterativeImputer(max_iter=max_iter, random_state=42, keep_empty_features=True).fit_transform(data[columns].to_numpy(copy=True))
+        for col in data.columns.difference(columns):
+            mode = data[col].mode()
+            data[col] = data[col].fillna(mode.iloc[0] if len(mode) else 'Missing')
+        self.imputed_datasets['iterative'] = data
+        return data
     
     def compare_imputation_methods(self) -> pd.DataFrame:
         """
@@ -118,13 +163,8 @@ class DataQualityAnalyzer:
         Returns:
             DataFrame with comparison statistics
         """
-        comparison = {}
-        
-        # Original data statistics (excluding missing values)
-        comparison['original'] = self.original_data.describe().loc[['mean', 'std', 'min', 'max']]
-        
-        # Statistics for each imputed dataset
-        pass
+        return pd.concat({name: data.describe().loc[['mean', 'std', 'min', 'max']]
+                          for name, data in {'original': self.original_data, **self.imputed_datasets}.items()}, axis=1)
     
     def visualize_missing_data(self, figsize: Tuple[int, int] = (15, 10)):
         """
@@ -421,6 +461,8 @@ def main():
     print("Task 1 completed successfully!")
     print("=" * 80)
     
+    comparison.to_csv("task1_imputation_statistics.csv")
+    analyzer.create_missing_indicators().to_csv("task1_missing_indicators.csv", index=False)
     return analyzer
 
 

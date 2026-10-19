@@ -227,26 +227,23 @@ class PreprocessingPipeline:
         Returns:
             Pipeline: Configured sklearn pipeline
         """
-        steps = []
-        
-        # Step 1: Imputation
-        pass
-        
-        # Step 2: Outlier handling
-        pass
-        
-        # Step 3: Feature engineering
-        pass
-        
-        # Step 4: Scaling
-        pass
-        
-        # Step 5: Feature selection
-        pass
-        
-        # Step 6: Classifier
-        pass
-        
+        if imputer_strategy == 'knn':
+            imputer = KNNImputer(keep_empty_features=True)
+        elif imputer_strategy in ('mean', 'median', 'most_frequent'):
+            imputer = SimpleImputer(strategy=imputer_strategy, keep_empty_features=True)
+        else:
+            raise ValueError('Unknown imputer: ' + imputer_strategy)
+        scalers = {'standard': StandardScaler(), 'robust': RobustScaler(), 'minmax': MinMaxScaler()}
+        if scaler_type not in scalers or outlier_method not in ('iqr', 'zscore'):
+            raise ValueError('Unknown scaler or outlier method.')
+        steps = [('imputer', imputer),
+                 ('outlier_handler', OutlierHandler(method=outlier_method, threshold=1.5 if outlier_method == 'iqr' else 3.0)),
+                 ('scaler', scalers[scaler_type])]
+        if feature_engineering:
+            steps.append(('feature_engineer', FeatureEngineer()))
+        if feature_selection:
+            steps.append(('feature_selector', SelectKBest(f_classif, k=int(n_features))))
+        steps.append(('classifier', LogisticRegression(max_iter=2000, random_state=self.random_state)))
         self.pipeline = Pipeline(steps)
         return self.pipeline
     
@@ -580,11 +577,13 @@ class PreprocessingPipeline:
         """
         fig, ax = plt.subplots(figsize=figsize)
         
-        bp = ax.boxplot([cv_scores], labels=['CV Scores'], patch_artist=True,
+        bp = ax.boxplot([cv_scores], patch_artist=True,
                        boxprops=dict(facecolor='lightblue'),
                        medianprops=dict(color='red', linewidth=2),
                        widths=0.5)
         
+        ax.set_xticks([1], ["CV Scores"])
+
         # Add individual points
         ax.scatter([1] * len(cv_scores), cv_scores, color='darkblue', 
                   alpha=0.5, s=50, zorder=3)
@@ -885,9 +884,12 @@ def main():
     print(f"  - Improvement: {(final_metrics['accuracy'] - baseline_test['accuracy']):.4f}")
     print(f"  - Best configuration: {best_config['config_name']}")
     
+    comparison_df.to_csv("task5_configuration_comparison.csv", index=False)
+    pd.DataFrame([baseline_test, final_metrics], index=["baseline", "final"]).to_csv("task5_metrics.csv")
     return pipeline_manager
 
 
 if __name__ == "__main__":
+    from task5_pipeline import main
     pipeline = main()
     plt.show()

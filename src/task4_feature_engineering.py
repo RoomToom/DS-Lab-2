@@ -70,7 +70,24 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with added mathematical features
         """
-        pass
+        data = df.copy()
+        for col in columns:
+            if col not in data:
+                continue
+            values = data[col]
+            shifted = values - min(0, values.min())
+            for operation in operations:
+                if operation == 'log': result = np.log1p(shifted)
+                elif operation == 'sqrt': result = np.sqrt(shifted)
+                elif operation == 'square': result = values ** 2
+                elif operation == 'cube': result = values ** 3
+                elif operation == 'reciprocal': result = 1 / values.replace(0, np.nan)
+                else: raise ValueError('Unknown operation: ' + operation)
+                name = col + '_' + operation
+                data[name] = result.fillna(0)
+                self.feature_catalog[name] = f'{operation} of {col}'
+                if name not in self.engineered_features: self.engineered_features.append(name)
+        return data
     
     def create_interaction_features(
         self,
@@ -95,7 +112,21 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with interaction features
         """
-        pass
+        data = df.copy()
+        for a, b in column_pairs:
+            if a not in data or b not in data:
+                continue
+            for operation in operations:
+                if operation == 'multiply': suffix, values = 'x', data[a] * data[b]
+                elif operation == 'add': suffix, values = 'plus', data[a] + data[b]
+                elif operation == 'subtract': suffix, values = 'minus', data[a] - data[b]
+                elif operation in ('divide', 'ratio'): suffix, values = 'div', data[a] / data[b].replace(0, np.nan)
+                else: raise ValueError('Unknown operation: ' + operation)
+                name = f'{a}_{suffix}_{b}'
+                data[name] = values.fillna(0)
+                self.feature_catalog[name] = f'{operation}: {a}, {b}; zero denominator gives 0'
+                if name not in self.engineered_features: self.engineered_features.append(name)
+        return data
     
     def create_aggregation_features(
         self,
@@ -123,7 +154,17 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with aggregation features
         """
-        pass
+        data = df.copy()
+        if group_by not in data:
+            return data
+        for col in agg_columns:
+            if col not in data: continue
+            for function in agg_functions:
+                name = f'{col}_{function}_by_{group_by}'
+                data[name] = data.groupby(group_by, dropna=False)[col].transform(function).fillna(0)
+                self.feature_catalog[name] = f'{function} of {col} grouped by {group_by}'
+                if name not in self.engineered_features: self.engineered_features.append(name)
+        return data
     
     def encode_onehot(
         self,
@@ -151,7 +192,20 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with one-hot encoded features
         """
-        pass
+        if max_categories < 1: raise ValueError('max_categories must be positive.')
+        data = df.copy()
+        for col in columns:
+            if col not in data: continue
+            values = data[col].astype('string').fillna('Missing')
+            top = values.value_counts().head(max_categories).index
+            values = values.where(values.isin(top), 'Other')
+            encoded = pd.get_dummies(values, prefix=col, drop_first=drop_first, dtype=int)
+            data = pd.concat([data.drop(columns=col), encoded], axis=1)
+            self.encoders[col + '_onehot'] = list(encoded.columns)
+            for name in encoded:
+                self.feature_catalog[name] = f'One-hot category of {col}'
+                if name not in self.engineered_features: self.engineered_features.append(name)
+        return data
     
     def encode_label(
         self,
@@ -173,7 +227,16 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with label encoded features
         """
-        pass
+        data = df.copy()
+        for col in columns:
+            if col not in data: continue
+            encoder = LabelEncoder()
+            name = col + '_label'
+            data[name] = encoder.fit_transform(data[col].astype(str))
+            self.encoders[name] = encoder
+            self.feature_catalog[name] = f'Label encoding of {col}'
+            if name not in self.engineered_features: self.engineered_features.append(name)
+        return data
     
     def encode_target(
         self,
@@ -201,7 +264,20 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with target encoded features
         """
-        pass
+        data = df.copy()
+        if target not in data: return data
+        if smoothing < 0: raise ValueError('Smoothing cannot be negative.')
+        # Для оцінювання моделі це кодування слід навчати окремо в кожному fold.
+        for col in columns:
+            if col not in data: continue
+            groups = data.groupby(col, dropna=False)[target].agg(['mean', 'count'])
+            mapping = (groups['mean'] * groups['count'] + smoothing * data[target].mean()) / (groups['count'] + smoothing)
+            name = col + '_target'
+            data[name] = data[col].map(mapping).astype(float).fillna(data[target].mean())
+            self.encoders[name] = mapping
+            self.feature_catalog[name] = f'Smoothed target mean by {col}'
+            if name not in self.engineered_features: self.engineered_features.append(name)
+        return data
     
     def encode_frequency(
         self,
@@ -223,7 +299,16 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with frequency encoded features
         """
-        pass
+        data = df.copy()
+        for col in columns:
+            if col not in data: continue
+            mapping = data[col].value_counts(normalize=True, dropna=False)
+            name = col + '_freq'
+            data[name] = data[col].map(mapping).astype(float)
+            self.encoders[name] = mapping
+            self.feature_catalog[name] = f'Category frequency of {col}'
+            if name not in self.engineered_features: self.engineered_features.append(name)
+        return data
     
     def create_polynomial_features(
         self,
@@ -251,7 +336,19 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with polynomial features
         """
-        pass
+        data = df.copy()
+        columns = [col for col in columns if col in data]
+        if not columns: return data
+        transformer = PolynomialFeatures(degree=degree, include_bias=include_bias)
+        values = transformer.fit_transform(data[columns])
+        for index, term in enumerate(transformer.get_feature_names_out(columns)):
+            if term in columns: continue
+            name = 'poly_' + term
+            data[name] = values[:, index]
+            self.feature_catalog[name] = f'Polynomial term: {term}'
+            if name not in self.engineered_features: self.engineered_features.append(name)
+        self.encoders['polynomial'] = transformer
+        return data
     
     def select_features_univariate(
         self,
@@ -428,29 +525,15 @@ class FeatureEngineeringPipeline:
         Dict[str, float]
             Performance scores for original and engineered features
         """
-        model = LogisticRegression(
-            max_iter=1000,
-            random_state=self.random_state,
-            solver='lbfgs'
-        )
-        
-        # Evaluate original features
-        scores_original = cross_val_score(
-            model, X_original, y, cv=cv, scoring='accuracy'
-        )
-        
-        # Evaluate engineered features
-        scores_engineered = cross_val_score(
-            model, X_engineered, y, cv=cv, scoring='accuracy'
-        )
-        
-        return {
-            'original_mean': scores_original.mean(),
-            'original_std': scores_original.std(),
-            'engineered_mean': scores_engineered.mean(),
-            'engineered_std': scores_engineered.std(),
-            'improvement': scores_engineered.mean() - scores_original.mean()
-        }
+        from sklearn.pipeline import make_pipeline
+        from sklearn.model_selection import StratifiedKFold
+        model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, random_state=self.random_state))
+        splitter = StratifiedKFold(cv, shuffle=True, random_state=self.random_state)
+        scores_original = cross_val_score(model, X_original, y, cv=splitter, scoring='accuracy')
+        scores_engineered = cross_val_score(model, X_engineered, y, cv=splitter, scoring='accuracy')
+        return {'original_mean': scores_original.mean(), 'original_std': scores_original.std(),
+                'engineered_mean': scores_engineered.mean(), 'engineered_std': scores_engineered.std(),
+                'improvement': scores_engineered.mean() - scores_original.mean()}
 
 
 def create_sample_dataset(
@@ -895,7 +978,8 @@ if __name__ == "__main__":
     # Categorical encoding
     print("\n6. Encoding categorical features...")
     
-    # Target encoding
+    # Кодування для дослідження ознак; ці колонки не входять у CV-порівняння.
+    df['target_temp'] = y
     df = pipeline.encode_target(
         df,
         columns=['cat_feature_1'],
@@ -969,13 +1053,20 @@ if __name__ == "__main__":
     # Evaluate impact
     print("\n10. Evaluating feature engineering impact...")
     X_original = df[original_numerical].copy()
-    X_engineered = df[selected_rf].copy()
+    # Для CV використовуються лише ознаки без навчання на всьому наборі.
+    comparison_features = original_numerical + [name for name in df.columns
+        if name.endswith(('_square', '_cube')) or any(mark in name for mark in ('_x_', '_plus_', '_minus_', '_div_', 'poly_'))]
+    X_engineered = df[comparison_features].copy()
     
     impact = pipeline.evaluate_feature_impact(X_original, X_engineered, y, cv=5)
     print(f"\nOriginal features accuracy: {impact['original_mean']:.4f} (+/- {impact['original_std']:.4f})")
     print(f"Engineered features accuracy: {impact['engineered_mean']:.4f} (+/- {impact['engineered_std']:.4f})")
     print(f"Improvement: {impact['improvement']:.4f}")
     
+    catalog.to_csv('task4_feature_catalog.csv', index=False)
+    df.to_csv('task4_engineered_data.csv', index=False)
+    pd.DataFrame([impact]).to_csv('task4_feature_impact.csv', index=False)
+
     # Visualizations
     print("\n11. Generating visualizations...")
     
@@ -1030,38 +1121,28 @@ if __name__ == "__main__":
     # Prepare different encoded versions
     df_temp, y_temp = create_sample_dataset(n_samples=1000, random_state=42)
     
-    # Label encoding
-    df_label = df_temp.copy()
-    le1 = LabelEncoder()
-    le2 = LabelEncoder()
-    df_label['cat_feature_1_encoded'] = le1.fit_transform(df_label['cat_feature_1'])
-    df_label['cat_feature_2_encoded'] = le2.fit_transform(df_label['cat_feature_2'])
-    X_label = df_label[['num_feature_1', 'num_feature_2', 'num_feature_3',
-                        'cat_feature_1_encoded', 'cat_feature_2_encoded']]
-    model = LogisticRegression(max_iter=1000, random_state=42)
-    encoding_performance['Label Encoding'] = cross_val_score(
-        model, X_label, y_temp, cv=5
-    ).mean()
-    
-    # One-hot encoding
-    df_onehot = pd.get_dummies(df_temp, columns=['cat_feature_1', 'cat_feature_2'], drop_first=True)
-    X_onehot = df_onehot.drop(columns=['group'])
-    encoding_performance['One-Hot Encoding'] = cross_val_score(
-        model, X_onehot, y_temp, cv=5
-    ).mean()
-    
-    # Frequency encoding
-    freq1 = df_temp['cat_feature_1'].value_counts(normalize=True).to_dict()
-    freq2 = df_temp['cat_feature_2'].value_counts(normalize=True).to_dict()
-    df_freq = df_temp.copy()
-    df_freq['cat_feature_1_freq'] = df_freq['cat_feature_1'].map(freq1)
-    df_freq['cat_feature_2_freq'] = df_freq['cat_feature_2'].map(freq2)
-    X_freq = df_freq[['num_feature_1', 'num_feature_2', 'num_feature_3',
-                      'cat_feature_1_freq', 'cat_feature_2_freq']]
-    encoding_performance['Frequency Encoding'] = cross_val_score(
-        model, X_freq, y_temp, cv=5
-    ).mean()
-    
+    from sklearn.model_selection import StratifiedKFold
+    from sklearn.pipeline import make_pipeline
+    for method in ['Label Encoding', 'One-Hot Encoding', 'Frequency Encoding']:
+        scores = []
+        for train, test in StratifiedKFold(5, shuffle=True, random_state=42).split(df_temp, y_temp):
+            a, b = df_temp.iloc[train].drop(columns='group').copy(), df_temp.iloc[test].drop(columns='group').copy()
+            for col in ['cat_feature_1', 'cat_feature_2']:
+                if method == 'One-Hot Encoding':
+                    encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+                    va, vb = encoder.fit_transform(a[[col]]), encoder.transform(b[[col]])
+                    names = encoder.get_feature_names_out([col])
+                    a = pd.concat([a.drop(columns=col), pd.DataFrame(va, index=a.index, columns=names)], axis=1)
+                    b = pd.concat([b.drop(columns=col), pd.DataFrame(vb, index=b.index, columns=names)], axis=1)
+                else:
+                    mapping = (a[col].value_counts(normalize=True) if method == 'Frequency Encoding'
+                               else pd.Series(range(a[col].nunique()), index=sorted(a[col].unique())))
+                    a[col], b[col] = a[col].map(mapping), b[col].map(mapping).fillna(-1)
+            model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, random_state=42))
+            model.fit(a, y_temp.iloc[train])
+            scores.append(model.score(b, y_temp.iloc[test]))
+        encoding_performance[method] = float(np.mean(scores))
+
     print("\nEncoding performance comparison:")
     for method, score in encoding_performance.items():
         print(f"  {method}: {score:.4f}")
@@ -1071,6 +1152,8 @@ if __name__ == "__main__":
         output_path='task4_encoding_comparison.png'
     )
     
+    pd.Series(encoding_performance, name='accuracy').to_csv('task4_encoding_comparison.csv')
+
     # Feature network
     visualize_feature_network(
         interaction_pairs,

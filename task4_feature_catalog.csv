@@ -1,0 +1,37 @@
+Feature,Description,Type
+num_feature_1_log,log of num_feature_1,Engineered
+num_feature_1_sqrt,sqrt of num_feature_1,Engineered
+num_feature_1_square,square of num_feature_1,Engineered
+num_feature_2_log,log of num_feature_2,Engineered
+num_feature_2_sqrt,sqrt of num_feature_2,Engineered
+num_feature_2_square,square of num_feature_2,Engineered
+num_feature_1_x_num_feature_2,"multiply: num_feature_1, num_feature_2; zero denominator gives 0",Engineered
+num_feature_1_plus_num_feature_2,"add: num_feature_1, num_feature_2; zero denominator gives 0",Engineered
+num_feature_1_div_num_feature_2,"divide: num_feature_1, num_feature_2; zero denominator gives 0",Engineered
+num_feature_1_x_num_feature_3,"multiply: num_feature_1, num_feature_3; zero denominator gives 0",Engineered
+num_feature_1_plus_num_feature_3,"add: num_feature_1, num_feature_3; zero denominator gives 0",Engineered
+num_feature_1_div_num_feature_3,"divide: num_feature_1, num_feature_3; zero denominator gives 0",Engineered
+num_feature_2_x_num_feature_3,"multiply: num_feature_2, num_feature_3; zero denominator gives 0",Engineered
+num_feature_2_plus_num_feature_3,"add: num_feature_2, num_feature_3; zero denominator gives 0",Engineered
+num_feature_2_div_num_feature_3,"divide: num_feature_2, num_feature_3; zero denominator gives 0",Engineered
+num_feature_1_mean_by_group,mean of num_feature_1 grouped by group,Engineered
+num_feature_1_std_by_group,std of num_feature_1 grouped by group,Engineered
+num_feature_1_max_by_group,max of num_feature_1 grouped by group,Engineered
+num_feature_2_mean_by_group,mean of num_feature_2 grouped by group,Engineered
+num_feature_2_std_by_group,std of num_feature_2 grouped by group,Engineered
+num_feature_2_max_by_group,max of num_feature_2 grouped by group,Engineered
+cat_feature_1_target,Smoothed target mean by cat_feature_1,Engineered
+cat_feature_2_target,Smoothed target mean by cat_feature_2,Engineered
+group_freq,Category frequency of group,Engineered
+cat_feature_1_label,Label encoding of cat_feature_1,Engineered
+cat_feature_2_label,Label encoding of cat_feature_2,Engineered
+cat_feature_1_B,One-hot category of cat_feature_1,Engineered
+cat_feature_1_C,One-hot category of cat_feature_1,Engineered
+cat_feature_1_D,One-hot category of cat_feature_1,Engineered
+cat_feature_2_Y,One-hot category of cat_feature_2,Engineered
+cat_feature_2_Z,One-hot category of cat_feature_2,Engineered
+group_Group2,One-hot category of group,Engineered
+group_Group3,One-hot category of group,Engineered
+poly_num_feature_1^2,Polynomial term: num_feature_1^2,Engineered
+poly_num_feature_1 num_feature_2,Polynomial term: num_feature_1 num_feature_2,Engineered
+poly_num_feature_2^2,Polynomial term: num_feature_2^2,Engineered

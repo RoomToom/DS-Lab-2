@@ -1,0 +1,7 @@
+,zscore,iqr,isolation_forest,lof
+feature1,13,17,0,0
+feature2,9,24,0,0
+feature3,10,20,0,0
+feature4,0,0,0,0
+outlier,0,0,30,30
+target,3,6,0,0

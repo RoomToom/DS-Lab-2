@@ -6,10 +6,10 @@
     ],
     "total_samples": 2040,
     "total_features": 30,
-    "memory_usage_mb": 0.728642463684082,
-    "duplicates": "40",
+    "memory_usage_mb": 0.4893608093261719,
+    "duplicates": 40,
     "missing_values": {
-      "total": "7657",
+      "total": 7657,
       "by_column": {
         "feature_0": 305,
         "feature_1": 310,
@@ -62,7 +62,12 @@
         "feature_21": 15.441176470588236,
         "feature_22": 15.196078431372548,
         "feature_23": 13.627450980392156,
-        "feature_24": 15.784313725490195
+        "feature_24": 15.784313725490195,
+        "category_1": 0.0,
+        "category_2": 0.0,
+        "category_3": 0.0,
+        "date": 0.0,
+        "target": 0.0
       }
     },
     "data_types": {
@@ -91,10 +96,10 @@
       "feature_22": "float64",
       "feature_23": "float64",
       "feature_24": "float64",
-      "category_1": "object",
-      "category_2": "object",
-      "category_3": "object",
-      "date": "datetime64[ns]",
+      "category_1": "str",
+      "category_2": "str",
+      "category_3": "str",
+      "date": "datetime64[us]",
       "target": "int64"
     },
     "numeric_features": [
@@ -140,17 +145,18 @@
     "class_balance": 0.4235868806699232
   },
   "preprocessing_steps": [
+    "Duplicates removed: 40",
     "Missing values handled: auto",
-    "Outliers handled: iqr method, cap action, 1692 outliers",
+    "Outliers handled: iqr, cap, 1665 values",
     "Categorical encoding: auto, datetime features extracted",
-    "Feature engineering: 10 new features created",
+    "Feature engineering: 8 new features created",
     "Feature scaling: robust",
     "Feature selection: kbest, 30 features selected",
     "Class balancing: undersample"
   ],
   "final_shape": [
-    1214,
+    1200,
     31
   ],
-  "timestamp": "2025-12-15 17:17:25"
+  "timestamp": "2026-10-19 03:56:11"
 }

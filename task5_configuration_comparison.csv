@@ -1,0 +1,5 @@
+config_name,mean_accuracy,std_accuracy,imputer_strategy,outlier_method,scaler_type,feature_engineering,feature_selection,n_features
+Baseline,0.7762499999999999,0.026634094690828156,mean,iqr,standard,False,False,
+With Feature Eng,0.7725,0.01920286436967154,mean,iqr,standard,True,False,
+With Selection,0.7725000000000002,0.021139418156609677,mean,iqr,standard,False,True,15.0
+Full Pipeline,0.78,0.026040833319999575,knn,iqr,robust,True,True,20.0
